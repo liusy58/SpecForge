@@ -180,7 +180,7 @@ class SGLangBackendArgs:
             type=str,
             default=None,
             help="The quantization method for the SGLang backend (e.g., w8a8_int8). "
-            "If not set, no quantization is applied.",
+            "If not set, sglang's own default is used.",
         )
 
     @staticmethod
@@ -210,10 +210,9 @@ class SGLangBackendArgs:
         )
 
     def to_kwargs(self) -> Dict[str, Any]:
-        return dict(
+        kwargs = dict(
             attention_backend=self.sglang_attention_backend,
             mem_fraction_static=self.sglang_mem_fraction_static,
-            context_length=self.sglang_context_length,
             enable_nccl_nvls=self.sglang_enable_nccl_nvls,
             enable_symm_mem=self.sglang_enable_symm_mem,
             enable_torch_compile=self.sglang_enable_torch_compile,
@@ -221,9 +220,21 @@ class SGLangBackendArgs:
             enable_dp_lm_head=self.sglang_enable_dp_lm_head,
             enable_piecewise_cuda_graph=self.sglang_enable_piecewise_cuda_graph,
             piecewise_cuda_graph_max_tokens=self.sglang_piecewise_cuda_graph_max_tokens,
-            piecewise_cuda_graph_tokens=self.sglang_piecewise_cuda_graph_tokens,
             ep_size=self.sglang_ep_size,
-            quantization=self.sglang_quantization,
-            max_running_requests=self.sglang_max_running_requests,
-            max_total_tokens=self.sglang_max_total_tokens,
         )
+        # Only include optional parameters when explicitly set, so that
+        # sglang's own ServerArgs defaults are respected (e.g. a user who
+        # modifies sglang to default quantization to w8a8_int8).
+        if self.sglang_context_length is not None:
+            kwargs["context_length"] = self.sglang_context_length
+        if self.sglang_piecewise_cuda_graph_tokens is not None:
+            kwargs["piecewise_cuda_graph_tokens"] = (
+                self.sglang_piecewise_cuda_graph_tokens
+            )
+        if self.sglang_quantization is not None:
+            kwargs["quantization"] = self.sglang_quantization
+        if self.sglang_max_running_requests is not None:
+            kwargs["max_running_requests"] = self.sglang_max_running_requests
+        if self.sglang_max_total_tokens is not None:
+            kwargs["max_total_tokens"] = self.sglang_max_total_tokens
+        return kwargs

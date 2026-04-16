@@ -148,7 +148,14 @@ def parse_args() -> Tuple[ArgumentParser, Namespace]:
         default=7,
         help="The length for Test-Time Training (TTT).",
     )
-    training_group.add_argument("--resume", action="store_true")
+    training_group.add_argument(
+        "--resume",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Resume training from the latest checkpoint in output-dir. "
+        "Default: auto-detect (resume if checkpoints exist in output-dir). "
+        "Use --no-resume to force training from scratch.",
+    )
     training_group.add_argument(
         "--ckpt-dir",
         type=str,
@@ -396,11 +403,26 @@ def build_draft_model(args: Namespace) -> Tuple[AutoDraftModelConfig, nn.Module]
                 f"Provided base model dir {args.ckpt_dir} is not a valid directory."
             )
 
+    # Auto-detect checkpoints for resume when --resume is not explicitly set
+    if args.resume is None:
+        if os.path.isdir(args.output_dir):
+            auto_ckpt, _ = get_last_checkpoint(args.output_dir)
+            if auto_ckpt is not None:
+                args.resume = True
+                print_on_rank0(
+                    f"Auto-detected checkpoint in {args.output_dir}. "
+                    f"Automatically resuming training. Use --no-resume to start fresh."
+                )
+            else:
+                args.resume = False
+        else:
+            args.resume = False
+
     # detecting last ckpt for draft model
     if args.resume and os.path.isdir(args.output_dir):
         print_on_rank0(args.output_dir)
         draft_model_last_checkpoint, ckpt_info = get_last_checkpoint(args.output_dir)
-        print(f"Last checkpoint detected: {draft_model_last_checkpoint}")
+        print_on_rank0(f"Last checkpoint detected: {draft_model_last_checkpoint}")
         is_resume_checkpoint = True
 
     if draft_model_last_checkpoint:
@@ -993,6 +1015,13 @@ def main():
 
             if args.max_num_steps is not None and global_step >= args.max_num_steps:
                 break
+
+        # Save checkpoint at the end of each epoch (if not already saved at save_interval)
+        if global_step % args.save_interval != 0:
+            print_on_rank0(
+                f"Epoch {epoch} completed at step {global_step}, saving epoch-end checkpoint..."
+            )
+            save_checkpoints(args, epoch, global_step, eagle3_model, optimizer)
 
         if args.max_num_steps is not None and global_step >= args.max_num_steps:
             break

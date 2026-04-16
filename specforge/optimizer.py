@@ -55,11 +55,21 @@ class BF16Optimizer:
         print_on_rank0("Successfully loaded optimizer state_dict.")
         self.scheduler.load_state_dict(state_dict["scheduler_state_dict"])
         print_on_rank0("Successfully loaded scheduler state_dict.")
+        # Restore fp32 master parameters for exact resume (avoids bf16→fp32 precision loss)
+        if "fp32_params" in state_dict:
+            for p, saved_p in zip(self.fp32_params, state_dict["fp32_params"]):
+                p.data.copy_(saved_p)
+            # Sync restored fp32 params back to model bf16 params
+            with torch.no_grad():
+                for p, mp in zip(self.model_params, self.fp32_params):
+                    p.data.copy_(mp.data.to(p.dtype))
+            print_on_rank0("Successfully loaded fp32 master parameters.")
 
     def state_dict(self):
         return {
             "optimizer_state_dict": self.optimizer.state_dict(),
             "scheduler_state_dict": self.scheduler.state_dict(),
+            "fp32_params": [p.data.clone() for p in self.fp32_params],
         }
 
     def get_learning_rate(self):
